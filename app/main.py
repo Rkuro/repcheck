@@ -4,7 +4,7 @@ from fastapi import FastAPI
 
 from .api.routes import router
 
-handler = handler = TimedRotatingFileHandler(
+handler = TimedRotatingFileHandler(
     "service.log",  # Log file path
     when="midnight",  # Rotate the log file at midnight
     interval=1,  # Rotate every 1 day

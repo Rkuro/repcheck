@@ -1,41 +1,9 @@
-from typing import (
-    List
-)
-from pydantic import (
-    BaseModel,
-    PastDate,
-    EmailStr,
-    HttpUrl
-)
+from sqlalchemy import Column, String
+from geoalchemy2 import Geometry
+from .database.database import Base
 
-class Representative(BaseModel):
-    # Source data fields
-    id: int
-    name: str
-    current_party: str = ""
-    current_district: str = ""
-    current_chamber: str = ""
-    first_name: str = ""
-    last_name: str = ""
-    gender: str = ""
-    biography: str = ""
-    birth_date: PastDate = "1970-01-01"
-    death_date: PastDate = "1970-01-01"
-    image: HttpUrl = ""
-    email: EmailStr = ""
-    links: List[str]
-    sources: List[str]
-    capitol_address: str = ""
-    capitol_phone: str = ""
-    capitol_fax: str = ""
-    district_address: str = ""
-    district_phone: str = ""
-    district_fax: str = ""
-    twitter: str = ""
-    youtube: str = ""
-    instagram: str = ""
-    facebook: str = ""
+class ZipCode(Base):
+    __tablename__ = "zipcodes"
 
-    # Derived fields
-    state: str
-    
+    zip_code = Column(String, primary_key=True, index=True)
+    geometry = Column(Geometry('POLYGON'))

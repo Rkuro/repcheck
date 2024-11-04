@@ -9,3 +9,7 @@ htmlcov
 .venv
 venv/
 *.log
+.env
+*.sql
+*.log*
+*.dump
