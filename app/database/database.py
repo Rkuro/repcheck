@@ -1,6 +1,4 @@
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlmodel import SQLModel, create_engine, Session
 from dotenv import load_dotenv
 from pathlib import Path
 from urllib import parse
@@ -15,9 +13,6 @@ log.info(f"Loading .env from {env_path}")
 load_dotenv(dotenv_path=env_path)
 
 POSTGRES_DB_PASSWORD = os.getenv("POSTGRES_DB_PASSWORD")
-
-# Set up SQLAlchemy base and engine
-Base = declarative_base()
 
 # Define connection parameters
 connection_params = {
@@ -37,16 +32,11 @@ engine = create_engine(
     f"/{connection_params['database']}"
 )
 
-# Create a configured "Session" class
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Base class for our models
-Base = declarative_base()
+def init_db():
+    SQLModel.metadata.create_all(engine)
 
 # Dependency to get the session
 def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    with Session(engine) as session:
+        yield session

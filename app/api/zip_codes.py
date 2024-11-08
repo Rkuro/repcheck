@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
-import logging
 import traceback
+import logging
 from sqlalchemy.orm import Session
 from geoalchemy2.shape import to_shape
 from shapely.geometry import mapping
 from ..database.database import get_db
-from ..models import ZipCode
+from ..database.models import Zipcode
 
 router = APIRouter(prefix="/api")
 log = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 @router.get("/zipcodes/{zip_code}")
 def read_zipcode(zip_code: str, db: Session = Depends(get_db)):
     try:
-        zipcode = db.query(ZipCode).filter(ZipCode.zip_code == zip_code).first()
+        zipcode = db.query(Zipcode).filter(Zipcode.zip_code == zip_code).first()
     
         if zipcode is None:
             raise HTTPException(status_code=404, detail="ZIP code not found")
@@ -34,7 +34,3 @@ def read_zipcode(zip_code: str, db: Session = Depends(get_db)):
             "geometry": None,
             "error": "Exception occurred fetching zipcode from database. Check logs"
         }
-
-@router.get("/status/health")
-async def get_status():
-    return {"status": "running"}

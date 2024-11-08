@@ -12,3 +12,9 @@ or just
 ```bash
 systemctl show repcheck -p FragmentPath
 ```
+
+
+## Local Dev
+```bash
+uvicorn app.main:app --reload
+```

@@ -1,8 +1,19 @@
 import logging
 from logging.handlers import TimedRotatingFileHandler
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from .api.routes import router
+from .api import (
+    router_people,
+    router_status,
+    router_zipcodes
+)
+
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://repcheck.us"
+]
 
 handler = TimedRotatingFileHandler(
     "service.log",  # Log file path
@@ -17,8 +28,16 @@ logger.addHandler(handler)
 
 app = FastAPI()
 
-app.include_router(router)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.get("/")
-async def read_root():
-    return {"message": "Hello, World!"}
+
+app.include_router(router_people)
+app.include_router(router_status)
+app.include_router(router_zipcodes)
+
