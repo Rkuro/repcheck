@@ -6,7 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api import (
     router_people,
     router_status,
-    router_zipcodes
+    router_zipcodes,
+    router_bills
 )
 
 origins = [
@@ -19,7 +20,16 @@ handler = TimedRotatingFileHandler(
     "service.log",  # Log file path
     when="midnight",  # Rotate the log file at midnight
     interval=1,  # Rotate every 1 day
-    backupCount=7  # Keep 7 days of logs
+    backupCount=7  # Keep 7 days of logs,
+)
+formatter = logging.Formatter('%(asctime)s %(levelname)-8s %(message)s',
+                          datefmt='%Y-%m-%d %H:%M:%S')
+handler.setFormatter(formatter)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
 
 logger = logging.getLogger()
@@ -40,4 +50,5 @@ app.add_middleware(
 app.include_router(router_people)
 app.include_router(router_status)
 app.include_router(router_zipcodes)
+app.include_router(router_bills)
 
