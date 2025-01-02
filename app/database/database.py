@@ -1,12 +1,14 @@
-from sqlmodel import SQLModel, create_engine, Session
-from dotenv import load_dotenv
-from pathlib import Path
-from urllib import parse
-import os
+from sqlmodel import create_engine, Session, SQLModel, inspect
+from sqlalchemy.dialects.postgresql import insert
 import logging
+from pathlib import Path
+from dotenv import load_dotenv
+from urllib.parse import quote
+import os
 
 log = logging.getLogger(__name__)
 
+# Load dotenv variables
 parent_dir = Path(__file__).resolve().parent.parent.parent
 env_path = parent_dir / '.env'
 log.info(f"Loading .env from {env_path}")
@@ -17,26 +19,25 @@ POSTGRES_DB_PASSWORD = os.getenv("POSTGRES_DB_PASSWORD")
 # Define connection parameters
 connection_params = {
     'username': 'postgres',
-    'password': parse.quote(POSTGRES_DB_PASSWORD),
+    'password': quote(POSTGRES_DB_PASSWORD),
     'host': 'localhost',  # or '127.0.0.1'
     'port': '5432',  # Default PostgreSQL port
     'database': 'repcheck'
 }
 
-# Create an engine using key-value parameters
-engine = create_engine(
-    f"postgresql+psycopg2://"
-    f"{connection_params['username']}:"
-    f"{connection_params['password']}"
-    f"@{connection_params['host']}:{connection_params['port']}"
-    f"/{connection_params['database']}"
-)
-
-
-def init_db():
+def get_engine():
+    # Create an engine using SQLModel
+    database_url = (
+        f"postgresql+psycopg2://{connection_params['username']}:{connection_params['password']}"
+        f"@{connection_params['host']}:{connection_params['port']}/{connection_params['database']}"
+    )
+    engine = create_engine(database_url)
+    # Ensure all tables exist!
     SQLModel.metadata.create_all(engine)
+    return engine
 
-# Dependency to get the session
-def get_db():
-    with Session(engine) as session:
-        yield session
+
+def get_session():
+    engine = get_engine()
+    session = Session(engine)
+    return session

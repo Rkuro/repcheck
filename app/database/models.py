@@ -1,116 +1,111 @@
 from sqlmodel import SQLModel, Field, Relationship
 from geoalchemy2 import Geometry
-from sqlalchemy import Column, ARRAY, Text, JSON
-from typing import List, Optional
-from datetime import datetime, date
+from datetime import datetime, timezone
+from sqlalchemy import Column, ARRAY, Text, JSON, BigInteger, DOUBLE_PRECISION, DateTime, text
+from typing import List, Optional, Dict
 
 
-class Zipcode(SQLModel, table=True):
-    __tablename__ = 'zipcodes'
-    
-    zip_code: str = Field(primary_key=True, nullable=False)
-    geometry: Optional[Geometry] = Field(
-        sa_column=Column(Geometry("POLYGON", srid=4326), nullable=True)
-    )
+class PersonArea(SQLModel, table=True):
+    __tablename__ = "person_area"
 
-    # Define relationships if needed
-    zipcode_people: List["ZipcodePeopleJoinTable"] = Relationship(back_populates="zipcode")
+    person_id: str = Field(foreign_key="people.id", primary_key=True)
+    area_id: str = Field(foreign_key="areas.id", primary_key=True)
+    relationship_type: str  # For ex: constituent_zip_code
+
+
+class Area(SQLModel, table=True):
+    __tablename__ = 'areas'
+
+    # For convenience more than anything, we are opting to use
+    # the "ocd-division/" prefix to identifiers for political districting, but I have mixed feelings about this
+    id: str = Field(primary_key=True, nullable=False)
+    classification: str
+    name: str
+    abbrev: Optional[str] = None
+    fips_code: Optional[str] = None
+    district_number: Optional[str] = None
+    geo_id: Optional[str] = None
+    geo_id_fq: Optional[str] = None
+    legal_statistical_area_description_code: Optional[str] = None
+    maf_tiger_feature_class_code: Optional[str] = None
+    funcstat: Optional[str] = None
+    land_area: int = Field(sa_column=Column(BigInteger()))
+    water_area: int = Field(sa_column=Column(BigInteger()))
+    centroid_lat: float = Field(sa_column=Column(DOUBLE_PRECISION()))
+    centroid_lon: float = Field(sa_column=Column(DOUBLE_PRECISION()))
+    geometry: Geometry = Field(sa_column=Column(Geometry("GEOMETRY", srid=4326), nullable=False))
 
     class Config:
-        arbitrary_types_allowed = True  # Allows Geometry type
-
-
-class ZipcodePeopleJoinTable(SQLModel, table=True):
-    __tablename__ = 'zipcode_people_join_table'
-    
-    id: Optional[int] = Field(default=None, primary_key=True)
-    zip_code: str = Field(foreign_key="zipcodes.zip_code")
-    person_id: str = Field(foreign_key="people.id")
-
-    # Define relationships
-    zipcode: Optional[Zipcode] = Relationship(back_populates="zipcode_people")
-    person: Optional["Person"] = Relationship(back_populates="zipcode_people")
+        arbitrary_types_allowed = True
 
 
 class Person(SQLModel, table=True):
     __tablename__ = 'people'
-    
+
     id: str = Field(primary_key=True, nullable=False)
-    name: str = Field(nullable=False)
-    current_party: Optional[str] = None
-    current_district: Optional[str] = None
-    current_chamber: Optional[str] = None
-    given_name: Optional[str] = None
-    family_name: Optional[str] = None
-    gender: Optional[str] = None
-    email: Optional[str] = None
-    biography: Optional[str] = None
-    birth_date: Optional[date] = None
-    death_date: Optional[date] = None
+    jurisdiction_area_id: str = Field(foreign_key="areas.id", nullable=False)
+    constituent_area_id: str = Field(foreign_key="areas.id", nullable=False)
+    chamber: str
+    name: str
+    first_name: str
+    last_name: str
+    other_names: Optional[List[str]] = Field(default=None, sa_column=Column(ARRAY(Text)))
     image: Optional[str] = None
-    links: Optional[List[str]] = Field(default=None, sa_column=Column(ARRAY(Text)))  # Array of Text
-    sources: Optional[List[str]] = Field(default=None, sa_column=Column(ARRAY(Text)))  # Array of Text
-    capitol_address: Optional[str] = None
-    capitol_voice: Optional[str] = None
-    capitol_fax: Optional[str] = None
-    district_address: Optional[str] = None
-    district_voice: Optional[str] = None
-    district_fax: Optional[str] = None
-    twitter: Optional[str] = None
-    youtube: Optional[str] = None
-    instagram: Optional[str] = None
-    facebook: Optional[str] = None
-    wikidata: Optional[str] = None
-    jurisdiction_id: Optional[str] = None
-
-    # Define relationships if needed
-    zipcode_people: List[ZipcodePeopleJoinTable] = Relationship(back_populates="person")
+    email: Optional[str] = None
+    offices: Optional[List[Dict]] = Field(default=None, sa_column=Column(JSON))
+    links: Optional[List[Dict]] = Field(default=None, sa_column=Column(JSON))
+    ids: Optional[Dict] = Field(default=None, sa_column=Column(JSON))
+    sources: Optional[List[Dict]] = Field(default=None, sa_column=Column(JSON))
 
 
-class Bill(SQLModel, table=True):
+class Bill(SQLModel):
+
+    id: str = Field(primary_key=True, nullable=False)
+    title: str
+    canonical_id: str
+    jurisdiction_area_id: str = Field(foreign_key="areas.id", nullable=False)
+    legislative_session: str
+    from_organization: Dict = Field(default=None, sa_column=Column(JSON))
+    classification: List[str] = Field(default=None, sa_column=Column(JSON))
+    subject: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    abstracts: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    other_titles: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    other_identifiers: List[str] = Field(default=None, sa_column=Column(JSON))
+    actions: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    sponsorships: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    related_bills: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    versions: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    documents: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    citations: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    sources: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    extras: Dict = Field(default=None, sa_column=Column(JSON))
+
+    # Derived fields
+    latest_action_date: Optional[datetime] = Field(default=None, sa_column=Column(DateTime))
+    first_action_date: Optional[datetime] = Field(default=None, sa_column=Column(DateTime))
+    updated_at: datetime = Field(default=None, sa_column=Column(DateTime))
+    created_at: datetime = Field(sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP")})
+
+class BillTable(Bill, table=True):
     __tablename__ = 'bills'
 
-    id: str = Field(primary_key=True)
-    session: Optional[str] = None
-    jurisdiction_id: Optional[str] = None
-    jurisdiction: Optional[dict] = Field(sa_column=Column(JSON))  # JSON column for dict
-    from_organization: Optional[dict] = Field(sa_column=Column(JSON))  # JSON column for dict
-    identifier: Optional[str] = None
-    title: Optional[str] = None
-    classification: Optional[List[str]] = Field(sa_column=Column(JSON))  # JSON for list of strings
-    subject: Optional[List[str]] = Field(sa_column=Column(JSON))  # JSON for list of strings
-    extras: Optional[dict] = Field(sa_column=Column(JSON))  # JSON column for dict
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    openstates_url: Optional[str] = None
-    first_action_date: Optional[datetime] = None
-    latest_action_date: Optional[datetime] = None
-    latest_action_description: Optional[str] = None
-    latest_passage_date: Optional[datetime] = None
-    related_bills: Optional[List[dict]] = Field(sa_column=Column(JSON))  # JSON column for list of dicts
-    abstracts: Optional[List[dict]] = Field(sa_column=Column(JSON))  # JSON column for list of dicts
-    other_titles: Optional[List[str]] = Field(sa_column=Column(JSON))  # JSON for list of strings
-    other_identifiers: Optional[List[str]] = Field(sa_column=Column(JSON))  # JSON for list of strings
-    sponsorships: Optional[List[dict]] = Field(sa_column=Column(JSON))  # JSON column for list of dicts
-    actions: Optional[List[dict]] = Field(sa_column=Column(JSON))  # JSON column for list of dicts
-    sources: Optional[List[dict]] = Field(sa_column=Column(JSON))  # JSON column for list of dicts
-    versions: Optional[List[dict]] = Field(sa_column=Column(JSON))  # JSON column for list of dicts
-    documents: Optional[List[dict]] = Field(sa_column=Column(JSON))  # JSON column for list of dicts
-    votes: Optional[List[dict]] = Field(sa_column=Column(JSON))  # JSON column for list of dicts
+class VoteEvent(SQLModel, table=True):
+    __tablename__ = 'vote_events'
+
+    id: str = Field(primary_key=True, nullable=False)
+    bill_id: str = Field(foreign_key="bills.id", nullable=False)
+    identifier: str
+    motion_text: str
+    motion_classification: List[str] = Field(default=None, sa_column=Column(JSON))
+    start_date: datetime
+    result: str
+    chamber: str
+    legislative_session: str
+    votes: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    counts: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    sources: List[Dict] = Field(default=None, sa_column=Column(JSON))
+    extras: Dict = Field(default=None, sa_column=Column(JSON))
 
 
-
-class Jurisdiction(SQLModel, table=True):
-    __tablename__ = 'jurisdictions'
-
-    id: str = Field(primary_key=True)
-    name: Optional[str] = None
-    classification: Optional[str] = None
-    division_id: Optional[str] = None
-    url: Optional[str] = None
-    latest_bill_update: Optional[datetime] = None
-    latest_people_update: Optional[datetime] = None
-    organizations: Optional[dict] = Field(sa_column=Column(JSON))  # JSON column for dict
-    legislative_sessions: Optional[dict] = Field(sa_column=Column(JSON))  # JSON column for dict
-    latest_runs: Optional[dict] = Field(sa_column=Column(JSON))  # JSON column for dict
-    last_processed: Optional[datetime] = None
+class BillWithVotes(Bill):
+    votes: List[VoteEvent] = Field(default=None, sa_column=Column(ARRAY(VoteEvent)))

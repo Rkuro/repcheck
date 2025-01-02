@@ -13,3 +13,4 @@ venv/
 *.sql
 *.log*
 *.dump
+.idea/

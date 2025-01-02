@@ -4,33 +4,46 @@ from typing import List
 import logging
 import traceback
 
-from ..database.database import get_db
-from ..database.models import Zipcode, ZipcodePeopleJoinTable, Person
+from ..database.database import get_session
+from ..database.models import Area, Person, PersonArea
 
 router = APIRouter(prefix="/api")
 log = logging.getLogger(__name__)
 
 @router.get("/people/{zip_code}", response_model=List[Person])
-def get_representatives(zip_code: str, db: Session = Depends(get_db)):
+def get_representatives_by_zip(zip_code: str, session: Session = Depends(get_session)):
     try:
-        # Fetch the ZIP code record
-        zipcode = db.exec(select(Zipcode).where(Zipcode.zip_code == zip_code)).first()
-        if zipcode is None:
-            raise HTTPException(status_code=404, detail="ZIP code not found")
 
-        # Get all person_ids associated with the ZIP code
-        person_ids = db.exec(
-            select(ZipcodePeopleJoinTable.person_id).where(ZipcodePeopleJoinTable.zip_code == zip_code)
-        ).all()
+        area_id = f"ocd-division/country:us/zipcode:{zip_code}"
 
-        log.info(f"Found people {person_ids} for zipcode {zip_code}")
-        if not person_ids:
-            return []
+        # Fetch person IDs for people associated with the zip code
+        person_ids = (
+            session.exec(
+                select(PersonArea.person_id)
+                .where(PersonArea.area_id == area_id)
+                .distinct()
+            )
+            .all()
+        )
 
         # Fetch Person records for those person_ids
-        representatives = db.exec(select(Person).where(Person.id.in_(person_ids))).all()
+        people = session.exec(select(Person).where(Person.id.in_(person_ids))).all()
 
-        return representatives
+        return people
+    except Exception:
+        log.error(f"Exception occurred: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while fetching representatives.",
+        )
+
+
+@router.post("/people", response_model=List[Person])
+def get_representatives(ids: List[str], session: Session = Depends(get_session)):
+    try:
+        people = session.exec(select(Person).where(Person.id.in_(ids))).all()
+
+        return people
     except Exception:
         log.error(f"Exception occurred: {traceback.format_exc()}")
         raise HTTPException(

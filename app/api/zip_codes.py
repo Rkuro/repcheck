@@ -4,17 +4,18 @@ import logging
 from sqlalchemy.orm import Session
 from geoalchemy2.shape import to_shape
 from shapely.geometry import mapping
-from ..database.database import get_db
-from ..database.models import Zipcode
+from ..database.database import get_session
+from ..database.models import Area
 
 router = APIRouter(prefix="/api")
 log = logging.getLogger(__name__)
 
 # Endpoint to fetch a specific ZIP code by zip_code
 @router.get("/zipcodes/{zip_code}")
-def read_zipcode(zip_code: str, db: Session = Depends(get_db)):
+def read_zipcode(zip_code: str, session: Session = Depends(get_session)):
     try:
-        zipcode = db.query(Zipcode).filter(Zipcode.zip_code == zip_code).first()
+        zipcode = session.query(Area).where(Area.classification ==
+                                       'zipcode' and Area.abbrev == zip_code).first()
     
         if zipcode is None:
             raise HTTPException(status_code=404, detail="ZIP code not found")
