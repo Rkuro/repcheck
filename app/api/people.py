@@ -26,6 +26,8 @@ def get_representatives_by_zip(zip_code: str, session: Session = Depends(get_ses
             .all()
         )
 
+        log.info(f"Found person IDs {person_ids} for zipcode {zip_code}")
+
         # Fetch Person records for those person_ids
         people = session.exec(select(Person).where(Person.id.in_(person_ids))).all()
 
