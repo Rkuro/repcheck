@@ -5,12 +5,12 @@ import logging
 import traceback
 
 from ..database.database import get_session
-from ..database.models import Area, Person, PersonArea
+from ..database.models import Area, Person, PersonTable, PersonWithAreas, PersonArea
 
 router = APIRouter(prefix="/api")
 log = logging.getLogger(__name__)
 
-@router.get("/people/{zip_code}", response_model=List[Person])
+@router.get("/people/{zip_code}", response_model=List[PersonWithAreas])
 def get_representatives_by_zip(zip_code: str, session: Session = Depends(get_session)):
     try:
 
@@ -29,9 +29,32 @@ def get_representatives_by_zip(zip_code: str, session: Session = Depends(get_ses
         log.info(f"Found person IDs {person_ids} for zipcode {zip_code}")
 
         # Fetch Person records for those person_ids
-        people = session.exec(select(Person).where(Person.id.in_(person_ids))).all()
+        people = session.exec(
+            select(PersonTable)
+            .where(PersonTable.id.in_(person_ids))
+        ).all()
 
-        return people
+        area_ids = set([])
+        people_with_areas = []
+        for p in people:
+            people_with_areas.append(PersonWithAreas(**p.dict()))
+            area_ids.add(p.constituent_area_id)
+            area_ids.add(p.jurisdiction_area_id)
+
+        areas = session.exec(
+            select(Area)
+            .where(Area.id.in_(area_ids))
+        ).all()
+
+        # Tag them onto the objects
+        for p_with_area in people_with_areas:
+            for area in areas:
+                if p_with_area.constituent_area_id == area.id:
+                    p_with_area.constituent_area = area.dict(exclude={"geometry"})
+                if p_with_area.jurisdiction_area_id == area.id:
+                    p_with_area.jurisdiction_area = area.dict(exclude={"geometry"})
+
+        return people_with_areas
     except Exception:
         log.error(f"Exception occurred: {traceback.format_exc()}")
         raise HTTPException(
@@ -43,7 +66,7 @@ def get_representatives_by_zip(zip_code: str, session: Session = Depends(get_ses
 @router.post("/people", response_model=List[Person])
 def get_representatives(ids: List[str], session: Session = Depends(get_session)):
     try:
-        people = session.exec(select(Person).where(Person.id.in_(ids))).all()
+        people = session.exec(select(PersonTable).where(PersonTable.id.in_(ids))).all()
 
         return people
     except Exception:

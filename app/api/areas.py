@@ -40,3 +40,33 @@ def read_zipcode(zip_code: str, session: Session = Depends(get_session)):
             "geometry": None,
             "error": "Exception occurred fetching zipcode from database. Check logs"
         }
+
+
+@router.get("/areas/{area_id:path}")
+def read_zipcode(area_id: str, session: Session = Depends(get_session)):
+    log.info(f"Area id: {area_id}")
+    try:
+
+        area = session.execute(
+            select(Area.id, Area.geometry)
+            .where(Area.id == area_id)
+        ).one()
+
+        if not area:
+            raise HTTPException(status_code=404, detail="Area not found")
+        log.info(f"Area: {area}")
+        geom = to_shape(area.geometry)
+
+        # Return the area id along with geometry in GeoJSON format
+        return {
+            "area_id": area_id,
+            "geometry": mapping(geom),  # Convert geometry to GeoJSON
+            "error": None
+        }
+    except:
+        log.error(f"Exception occurred: {traceback.format_exc()}")
+        return {
+            "area_id": None,
+            "geometry": None,
+            "error": "Exception occurred fetching area from database. Check logs"
+        }

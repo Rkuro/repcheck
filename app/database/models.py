@@ -39,9 +39,7 @@ class Area(SQLModel, table=True):
         arbitrary_types_allowed = True
 
 
-class Person(SQLModel, table=True):
-    __tablename__ = 'people'
-
+class Person(SQLModel):
     id: str = Field(primary_key=True, nullable=False)
     jurisdiction_area_id: str = Field(foreign_key="areas.id", nullable=False)
     constituent_area_id: str = Field(foreign_key="areas.id", nullable=False)
@@ -56,6 +54,13 @@ class Person(SQLModel, table=True):
     links: Optional[List[Dict]] = Field(default=None, sa_column=Column(JSON))
     ids: Optional[Dict] = Field(default=None, sa_column=Column(JSON))
     sources: Optional[List[Dict]] = Field(default=None, sa_column=Column(JSON))
+
+class PersonTable(Person, table=True):
+    __tablename__ = 'people'
+
+class PersonWithAreas(Person):
+    jurisdiction_area: Optional[Dict] = Field(default=None, sa_column=Column(JSON))
+    constituent_area: Optional[Dict] = Field(default=None, sa_column=Column(JSON))
 
 
 class Bill(SQLModel):

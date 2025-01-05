@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api import (
     router_people,
     router_status,
-    router_zipcodes,
+    router_areas,
     router_bills
 )
 
@@ -49,6 +49,6 @@ app.add_middleware(
 
 app.include_router(router_people)
 app.include_router(router_status)
-app.include_router(router_zipcodes)
+app.include_router(router_areas)
 app.include_router(router_bills)
 

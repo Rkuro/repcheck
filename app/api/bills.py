@@ -6,7 +6,7 @@ import logging
 import traceback
 from math import ceil
 from ..database.database import get_session
-from ..database.models import BillTable, BillWithVotes, Person, PersonArea, VoteEvent
+from ..database.models import BillTable, BillWithVotes, PersonTable, PersonArea, VoteEvent
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api")
@@ -53,8 +53,8 @@ def get_bills_for_representatives(
 
         # Fetch their jurisdiction_area_ids
         jurisdiction_areas = session.exec(
-            select(Person.jurisdiction_area_id)
-            .where(Person.id.in_(person_ids))
+            select(PersonTable.jurisdiction_area_id)
+            .where(PersonTable.id.in_(person_ids))
             .distinct()
         ).all()
         jurisdiction_area_ids = [ja for ja in jurisdiction_areas]
