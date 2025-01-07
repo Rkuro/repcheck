@@ -90,6 +90,7 @@ class Bill(SQLModel):
     first_action_date: Optional[datetime] = Field(default=None, sa_column=Column(DateTime))
     updated_at: datetime = Field(default=None, sa_column=Column(DateTime))
     created_at: datetime = Field(sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP")})
+    jurisdiction_level: str
 
 class BillTable(Bill, table=True):
     __tablename__ = 'bills'
