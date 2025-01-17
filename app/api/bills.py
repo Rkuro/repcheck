@@ -136,7 +136,6 @@ def get_bill(bill_id: str,  session: Session = Depends(get_session)):
         votes = session.exec(select(VoteEvent).where(VoteEvent.bill_id == bill.id)).all()
         bill_with_votes = BillWithVotes(**bill.dict(), votes=votes)
 
-        log.info(f"Found bill {bill}")
         # if not bill:
         #     raise HTTPException(status_code=404, detail="Bill not found")
         

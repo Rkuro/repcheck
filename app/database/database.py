@@ -25,20 +25,23 @@ connection_params = {
     'database': 'repcheck'
 }
 
-def get_engine():
-    # Create an engine using SQLModel
-    database_url = (
-        f"postgresql+psycopg2://{connection_params['username']}:{connection_params['password']}"
-        f"@{connection_params['host']}:{connection_params['port']}/{connection_params['database']}"
-    )
-    engine = create_engine(database_url)
-    # Ensure all tables exist!
-    SQLModel.metadata.create_all(engine)
-    return engine
+# Create an engine using SQLModel
+database_url = (
+    f"postgresql+psycopg2://{connection_params['username']}:{connection_params['password']}"
+    f"@{connection_params['host']}:{connection_params['port']}/{connection_params['database']}"
+)
+engine = create_engine(
+    database_url,
+    pool_size=5,       # Default is 5
+    max_overflow=10,   # Default is 10 (additional connections beyond pool_size)
+    pool_recycle=1800, # Recycle connections after 30 minutes
+    pool_pre_ping=True # Check if connections are still valid
+)
+# Ensure all tables exist!
+SQLModel.metadata.create_all(engine)
 
 
 def get_session():
-    engine = get_engine()
     session = Session(engine)
     try:
         yield session
