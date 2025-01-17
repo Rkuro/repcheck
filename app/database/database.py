@@ -40,4 +40,7 @@ def get_engine():
 def get_session():
     engine = get_engine()
     session = Session(engine)
-    return session
+    try:
+        yield session
+    finally:
+        session.close()
