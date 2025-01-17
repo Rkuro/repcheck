@@ -18,18 +18,19 @@ def read_zipcode(zip_code: str, session: Session = Depends(get_session)):
 
         zip_code_area_id = f"ocd-division/country:us/zipcode:{zip_code}"
         area = session.execute(
-            select(Area.id, Area.geometry)
+            select(Area)
             .where(Area.id == zip_code_area_id)
-        ).one()
+        ).scalars().one()
     
         if not area:
             raise HTTPException(status_code=404, detail="ZIP code not found")
-        log.info(f"Zip code: {area}")
+        # log.info(f"Zip code: {area}")
         geom = to_shape(area.geometry)
         
         # Return the ZIP code along with geometry in GeoJSON format
         return {
             "zip_code": zip_code,
+            "area": area.dict(exclude={"geometry"}),
             "geometry": mapping(geom),  # Convert geometry to GeoJSON
             "error": None
         }
