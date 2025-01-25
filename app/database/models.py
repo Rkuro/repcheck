@@ -1,7 +1,8 @@
 from sqlmodel import SQLModel, Field, Relationship
 from geoalchemy2 import Geometry
 from datetime import datetime, timezone
-from sqlalchemy import Column, ARRAY, Text, JSONB, BigInteger, DOUBLE_PRECISION, DateTime, text
+from sqlalchemy import Column, ARRAY, Text, BigInteger, DOUBLE_PRECISION, DateTime, text
+from sqlalchemy.dialects.postgresql import JSONB
 from typing import List, Optional, Dict
 
 
