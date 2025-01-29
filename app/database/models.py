@@ -94,7 +94,7 @@ class Bill(SQLModel):
     jurisdiction_level: str
 
     # AI summary
-    ai_summary: str
+    ai_summary: Optional[str]
 
 class BillTable(Bill, table=True):
     __tablename__ = 'bills'
