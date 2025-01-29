@@ -301,11 +301,18 @@ def get_bill_summaries(
 
         # Query the database
         # Count total rows
-        total = session.exec(select(func.count()).select_from(BillTable)).one()
+        total = (
+            session.exec(
+                select(func.count())
+                .select_from(BillTable)
+                .where(BillTable.jurisdiction_area_id == "ocd-division/country:us")
+            ).one()
+        )
         log.info(total)
         bills = (
             session.exec(
                 select(BillTable.id, BillTable.versions)
+                .where(BillTable.jurisdiction_area_id == "ocd-division/country:us")
                 .order_by(BillTable.id)
                 .offset(offset)
                 .limit(per_page)
