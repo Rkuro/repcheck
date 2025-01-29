@@ -2,6 +2,7 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 
 from .api import (
     router_people,
@@ -35,6 +36,8 @@ logging.basicConfig(
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
+
+load_dotenv()
 
 app = FastAPI()
 

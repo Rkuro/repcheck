@@ -11,7 +11,7 @@ class PersonArea(SQLModel, table=True):
 
     person_id: str = Field(foreign_key="people.id", primary_key=True)
     area_id: str = Field(foreign_key="areas.id", primary_key=True)
-    relationship_type: str  # For ex: constituent_zip_code
+    relationship_type: str  # For ex: constituent _zip_code
 
 
 class Area(SQLModel, table=True):
@@ -92,6 +92,9 @@ class Bill(SQLModel):
     updated_at: datetime = Field(default=None, sa_column=Column(DateTime))
     created_at: datetime = Field(sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP")})
     jurisdiction_level: str
+
+    # AI summary
+    ai_summary: str
 
 class BillTable(Bill, table=True):
     __tablename__ = 'bills'

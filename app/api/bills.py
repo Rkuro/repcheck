@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlmodel import Session, select
 from sqlalchemy import func, desc, asc, or_, text
 from sqlalchemy.dialects.postgresql import JSONB
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import date
 import logging
 import json
@@ -11,6 +11,7 @@ from math import ceil
 from ..database.database import get_session
 from ..database.models import BillTable, BillWithVotes, PersonTable, PersonArea, VoteEvent
 from pydantic import BaseModel
+import os
 
 router = APIRouter(prefix="/api")
 log = logging.getLogger(__name__)
@@ -215,8 +216,6 @@ def get_bills_for_representatives(
             detail="Exception occurred when fetching bills for representatives."
         )
 
-
-
 @router.get("/bills", response_model=BillWithVotes)
 def get_bill(bill_id: str,  session: Session = Depends(get_session)):
     try:
@@ -233,3 +232,96 @@ def get_bill(bill_id: str,  session: Session = Depends(get_session)):
         log.exception(e)
         log.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Exception occurred when fetching bill.")
+
+
+class BillSummaryUpdateResponse(BaseModel):
+    success: bool
+
+
+class BillSummaryUpdateRequest(BaseModel):
+    bill_id: str
+    summary: str
+
+@router.post("/bills/summary", response_model=BillSummaryUpdateResponse)
+def update_bill_summary(data: BillSummaryUpdateRequest, request:Request, session: Session = Depends(get_session)):
+    try:
+
+
+        headers_dict = dict(request.headers)
+        log.info(headers_dict)
+
+        if "x-repcheck-api-key" not in headers_dict:
+            raise HTTPException(status_code=401, detail="X-REPCHECK-API-KEY is not set.")
+
+        api_key_sent = headers_dict.get("x-repcheck-api-key")
+        expected_key = os.getenv("REPCHECK_API_KEY")
+        if api_key_sent != expected_key:
+            raise HTTPException(status_code=403, detail="Invalid API Key")
+
+        bill = session.exec(select(BillTable).where(BillTable.id == data.bill_id)).one_or_none()
+
+        if not bill:
+            raise HTTPException(status_code=404, detail="Bill not found.")
+
+        bill.ai_summary = data.summary
+        session.commit()
+        return BillSummaryUpdateResponse(
+            success=True
+        )
+    except HTTPException as e:
+        log.exception(e)
+        raise
+    except Exception as e:
+        log.exception(e)
+        log.error(traceback.format_exc())
+        raise HTTPException(status_code=404, detail="Exception occurred when updating summary")
+
+
+
+# Pydantic model for the response
+class BillVersions(BaseModel):
+    bill_id: str
+    versions: List[Dict]
+
+class PaginatedBillSummaries(BaseModel):
+    total: int
+    page: int
+    per_page: int
+    bills: List[BillVersions]
+
+@router.get("/bills/versions", response_model=PaginatedBillSummaries)
+def get_bill_summaries(
+    page: int = Query(1, ge=1, description="The page number to retrieve"),
+    per_page: int = Query(10, ge=1, le=100, description="Number of bills per page"),
+    session: Session = Depends(get_session)
+):
+    try:
+        # Calculate offset
+        offset = (page - 1) * per_page
+
+        # Query the database
+        # Count total rows
+        total = session.exec(select(func.count()).select_from(BillTable)).one()
+        log.info(total)
+        bills = (
+            session.exec(
+                select(BillTable.id, BillTable.versions)
+                .order_by(BillTable.id)
+                .offset(offset)
+                .limit(per_page)
+            )
+            .fetchall()
+        )
+
+        # Format response
+        result = PaginatedBillSummaries(
+            total=total,
+            page=page,
+            per_page=per_page,
+            bills=[BillVersions(bill_id=bill[0], versions=bill[1]) for bill in bills],
+        )
+        return result
+    except Exception as e:
+        # Log the exception
+        print(f"Error fetching bill summaries: {e}")
+        raise HTTPException(status_code=500, detail="An error occurred while fetching bill summaries.")
