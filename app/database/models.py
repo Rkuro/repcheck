@@ -14,6 +14,22 @@ class PersonArea(SQLModel, table=True):
     relationship_type: str  # For ex: constituent _zip_code
 
 
+class PrecinctElectionResultArea(SQLModel, table=True):
+    __tablename__ = "precinct_election_result_area"
+    precinct_id: str = Field(primary_key=True, nullable=False)
+    state: str
+    votes_dem: int = Field(sa_column=Column(BigInteger()))
+    votes_rep: int = Field(sa_column=Column(BigInteger()))
+    votes_total: int = Field(sa_column=Column(BigInteger()))
+    pct_dem_lead: float = Field(sa_column=Column(DOUBLE_PRECISION()))
+    official_boundary: Optional[bool]
+    geometry: Geometry = Field(sa_column=Column(Geometry("GEOMETRY", srid=4326), nullable=False))
+    centroid_lat: float = Field(sa_column=Column(DOUBLE_PRECISION()))
+    centroid_lon: float = Field(sa_column=Column(DOUBLE_PRECISION()))
+
+    class Config:
+        arbitrary_types_allowed = True
+
 class Area(SQLModel, table=True):
     __tablename__ = 'areas'
 
