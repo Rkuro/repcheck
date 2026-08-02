@@ -117,11 +117,19 @@ def get_bills_for_representatives(
             # Build a subquery for bills that any of these reps voted on
             votes_lateral = func.jsonb_array_elements(VoteEvent.votes).alias("vote_element")
 
-            # Build the conditions for matching representative IDs
+            # Build the conditions for matching representative IDs.
+            # The rep_id is attacker-controlled, so the JSONB operand must be sent as a
+            # bound parameter -- never interpolated into the SQL text. The explicit CAST
+            # keeps the `@>` operand typed as jsonb now that it arrives as a parameter.
             or_conditions = []
-            for rep_id in representative_ids:
+            for index, rep_id in enumerate(representative_ids):
+                param_name = f"rep_condition_{index}"
                 condition = json.dumps({"voter_id": rep_id})
-                or_conditions.append(text(f"vote_element @> '{condition}'"))
+                or_conditions.append(
+                    text(f"vote_element @> CAST(:{param_name} AS jsonb)").bindparams(
+                        **{param_name: condition}
+                    )
+                )
 
             # Create the subquery that uses the LATERAL join to filter votes
             rep_vote_bill_ids = (
@@ -248,7 +256,6 @@ def update_bill_summary(data: BillSummaryUpdateRequest, request:Request, session
 
 
         headers_dict = dict(request.headers)
-        log.info(headers_dict)
 
         if "x-repcheck-api-key" not in headers_dict:
             raise HTTPException(status_code=401, detail="X-REPCHECK-API-KEY is not set.")
