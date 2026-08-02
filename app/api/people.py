@@ -55,6 +55,8 @@ def get_representatives_by_zip(zip_code: str, session: Session = Depends(get_ses
                     p_with_area.jurisdiction_area = area.dict(exclude={"geometry"})
 
         return people_with_areas
+    except HTTPException:
+        raise
     except Exception:
         log.error(f"Exception occurred: {traceback.format_exc()}")
         raise HTTPException(
@@ -69,6 +71,8 @@ def get_representatives(ids: List[str], session: Session = Depends(get_session))
         people = session.exec(select(PersonTable).where(PersonTable.id.in_(ids))).all()
 
         return people
+    except HTTPException:
+        raise
     except Exception:
         log.error(f"Exception occurred: {traceback.format_exc()}")
         raise HTTPException(
