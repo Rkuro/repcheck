@@ -70,34 +70,54 @@ jobs:
             echo "requirements-dev.txt is not present on this ref - skipping."
           fi
 
+      - name: Compile check
+        # GATING: byte-compiles every module under app/ and fails on a syntax
+        # error. This is the only static signal the repo has - there is no
+        # linter, formatter or type checker configured, and adding one is
+        # explicitly out of scope for this change.
+        #
+        # Deliberately placed BEFORE the test step: a failing test would
+        # otherwise abort the job and suppress the repo's only static signal in
+        # that run. Compiling first means both signals are reported whenever
+        # the static one is the thing that broke.
+        #
+        # `-q` suppresses the per-file listing but still prints errors. Note
+        # this is a syntax check, not an import check: it will not catch a bad
+        # import or a missing dependency.
+        run: python -m compileall -q app
+
       - name: Run tests
         # GATING: a real test failure fails this job and blocks the merge.
         #
-        # Two deliberate, temporary escape hatches, because tests/ is not on
-        # main yet (it arrives with PR #1). Both are loud in the run log:
+        # Two escape hatches exist because tests/ is not on main yet (it
+        # arrives with PR #1). Both are SELF-RETIRING: each is conditioned on
+        # the pre-PR#1 state of the checkout, so neither survives the merge of
+        # PR #1 and neither has to be remembered and deleted by hand.
         #
         #   1. pytest is not installed. It ships in requirements-dev.txt, which
-        #      is absent on main, so the step above installs nothing. Verified
-        #      locally: `python -m pytest` against a requirements.txt-only
-        #      install exits 1 with "No module named pytest".
+        #      is absent on main, so the install step above installs nothing.
+        #      Guarded on `[ ! -f requirements-dev.txt ]`, i.e. only tolerated
+        #      on a ref that has no dev-dependency file at all. Once PR #1 adds
+        #      requirements-dev.txt, dropping the pytest pin from it makes this
+        #      step red (`python -m pytest` exits 1, "No module named pytest")
+        #      instead of silently skipping 41 tests.
         #
         #   2. pytest is installed but collects zero tests. pytest uses exit
-        #      code 5 for "no tests collected" - a NON-ZERO exit that would fail
-        #      this job even though nothing is wrong. Verified locally: exit
-        #      code 5 running pytest against a main checkout.
+        #      code 5 for "no tests collected" - a NON-ZERO exit that would
+        #      fail this job even though nothing is wrong on main. Guarded on
+        #      `[ ! -f requirements-dev.txt ] && [ ! -d tests ]`, i.e. only
+        #      tolerated on a ref that predates PR #1 entirely. Deleting
+        #      tests/, or emptying it, on any ref that has requirements-dev.txt
+        #      leaves exit 5 unhandled and the job goes red.
         #
-        # Either case would make this job red on main today, which the CI
+        # Without the guards this job is red on main today, which the CI
         # conventions forbid: a check that is red on day one trains people to
         # merge past red. Neither hatch can mask a real failure - pytest exit
         # codes 1 (tests failed), 2 (interrupted), 3 (internal error) and
-        # 4 (usage error) all still fail the job. The moment tests/ lands this
-        # step gates on real results with no edit required.
-        #
-        # TODO: delete both guards once PR #1 has merged, so that a repo that
-        # loses its tests goes red instead of quietly passing.
+        # 4 (usage error) all still fail the job on every ref.
         run: |
-          if ! python -m pytest --version >/dev/null 2>&1; then
-            echo "::warning title=Tests skipped::pytest is not installed (requirements-dev.txt is not on this ref). Expected until PR #1 merges - remove this guard afterwards."
+          if [ ! -f requirements-dev.txt ] && ! python -m pytest --version >/dev/null 2>&1; then
+            echo "::warning title=Tests skipped::pytest is not installed and requirements-dev.txt is not on this ref, so there are no tests to run. Expected until PR #1 merges; once that file exists this guard no longer applies and a missing pytest fails the job."
             exit 0
           fi
 
@@ -106,23 +126,12 @@ jobs:
           status=$?
           set -e
 
-          if [ "$status" -eq 5 ]; then
-            echo "::warning title=No tests collected::pytest exited 5 (zero tests collected). Expected until PR #1 adds tests/ - remove this guard afterwards."
+          if [ "$status" -eq 5 ] && [ ! -f requirements-dev.txt ] && [ ! -d tests ]; then
+            echo "::warning title=No tests collected::pytest exited 5 (zero tests collected) on a ref with no tests/ directory and no requirements-dev.txt. Expected until PR #1 adds tests/; once either exists this guard no longer applies and exit 5 fails the job."
             exit 0
           fi
 
           exit "$status"
-
-      - name: Compile check
-        # GATING: byte-compiles every module under app/ and fails on a syntax
-        # error. This is the only static signal the repo has - there is no
-        # linter, formatter or type checker configured, and adding one is
-        # explicitly out of scope for this change.
-        #
-        # `-q` suppresses the per-file listing but still prints errors. Note
-        # this is a syntax check, not an import check: it will not catch a bad
-        # import or a missing dependency.
-        run: python -m compileall -q app
 
   # ---------------------------------------------------------------------------
   # ADVISORY. This job reports and never blocks. See the comment below.
@@ -148,8 +157,19 @@ jobs:
         run: python -m pip install pip-audit==2.10.1
 
       - name: Audit pinned dependencies (ADVISORY - does not gate)
-        # ADVISORY BY DESIGN. This step always exits 0. That is a deliberate
-        # stage, not an oversight.
+        # ADVISORY BY DESIGN, via `continue-on-error: true` below: the step
+        # keeps pip-audit's real exit code (so a crash is visible as a red
+        # step) while the job's conclusion stays success and the merge is not
+        # blocked. That is a deliberate stage, not an oversight.
+        #
+        # The earlier `| tee ... || true` plus trailing `exit 0` form was
+        # replaced because it flattened every outcome to 0: a pip-audit crash
+        # (registry unreachable, bad flag, unreadable requirements file) looked
+        # exactly like a clean audit - green step, empty report block. Now only
+        # a genuinely clean audit exits 0; anything else surfaces as a red step
+        # inside a green job. Note pip-audit reuses exit 1 both for "advisories
+        # found" and for some usage errors, so read the captured output (echoed
+        # into the run summary along with the exit code) to tell them apart.
         #
         # requirements.txt has known advisories that are deliberately out of
         # scope for this change. Verified locally with pip-audit 2.10.1:
@@ -170,19 +190,24 @@ jobs:
         #      anything at or past 1.x is a FastAPI compatibility question, not
         #      a one-line pin bump, and needs its own change.
         #   2. Upgrade mako to >= 1.3.12.
-        #   3. Delete the `|| true` and the trailing `exit 0` below, so a newly
+        #   3. Delete the `continue-on-error: true` line below, so a newly
         #      published advisory fails the build.
         # Until then, do NOT add this job to the required status checks - it is
         # non-gating by design and will report findings on every run.
+        continue-on-error: true
         run: |
           set -o pipefail
           echo "Advisory only: findings below do NOT fail this build."
-          python -m pip_audit -r requirements.txt 2>&1 | tee audit-output.txt || true
+
+          status=0
+          python -m pip_audit -r requirements.txt 2>&1 | tee audit-output.txt || status=$?
 
           {
             echo "### Dependency audit (advisory)"
             echo
             echo "\`pip-audit -r requirements.txt\` - **reported only, does not gate.**"
+            echo
+            echo "pip-audit exit code: \`${status}\` (0 = no advisories; non-zero = advisories found, or pip-audit failed to run - read the output below to tell which)."
             echo
             echo '```'
             cat audit-output.txt
@@ -191,5 +216,4 @@ jobs:
             echo "See the comment in \`.github/workflows/ci.yml\` for what has to change before this can gate."
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "Advisory step complete - exiting 0 regardless of findings."
-          exit 0
+          exit "$status"
