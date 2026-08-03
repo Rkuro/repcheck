@@ -1,0 +1,195 @@
+name: CI
+
+# Triggers: every pull request (any base branch) and every push to the default
+# branch. Nothing else - no schedule, no workflow_dispatch.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege. Nothing here writes to the repo, publishes packages, or
+# comments on PRs, so read access to contents is all that is needed.
+permissions:
+  contents: read
+
+# Supersede in-flight runs for the same ref instead of queueing them.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The project targets Python 3.11. Source: the checked-in-adjacent PyCharm
+  # config `.idea/misc.xml`, which sets project-jdk-name "Python 3.11
+  # (repcheck)" (also `.idea/repcheck.iml`). That is the only version marker in
+  # the repo - there is no setup.py, pyproject.toml, tox.ini, Dockerfile or
+  # runtime.txt, and `.idea/` is gitignored, so this is a weak signal. Pinned
+  # explicitly rather than floating on `latest` so an upstream Python release
+  # cannot turn into a surprise red build. See the report for the caveat.
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # GATING. A failure here should block the merge.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Tests and compile check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          # Glob rather than an explicit list: requirements-dev.txt does not
+          # exist on main yet (it arrives with PR #1), and naming a file that
+          # does not exist makes setup-python fail. `requirements*.txt` always
+          # matches at least requirements.txt, and picks up the dev file
+          # automatically once it lands.
+          cache-dependency-path: requirements*.txt
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install dev dependencies
+        # requirements-dev.txt (pytest, httpx) is added by PR #1 on branch
+        # security/patch-critical and is not on main yet. Installed
+        # conditionally so this job does not fail on a missing file. Note the
+        # dev file itself starts with `-r requirements.txt`, so the two installs
+        # are consistent by construction.
+        # TODO: once PR #1 has merged, this can become an unconditional
+        # `pip install -r requirements-dev.txt`.
+        run: |
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
+            echo "requirements-dev.txt is not present on this ref - skipping."
+          fi
+
+      - name: Run tests
+        # GATING: a real test failure fails this job and blocks the merge.
+        #
+        # Two deliberate, temporary escape hatches, because tests/ is not on
+        # main yet (it arrives with PR #1). Both are loud in the run log:
+        #
+        #   1. pytest is not installed. It ships in requirements-dev.txt, which
+        #      is absent on main, so the step above installs nothing. Verified
+        #      locally: `python -m pytest` against a requirements.txt-only
+        #      install exits 1 with "No module named pytest".
+        #
+        #   2. pytest is installed but collects zero tests. pytest uses exit
+        #      code 5 for "no tests collected" - a NON-ZERO exit that would fail
+        #      this job even though nothing is wrong. Verified locally: exit
+        #      code 5 running pytest against a main checkout.
+        #
+        # Either case would make this job red on main today, which the CI
+        # conventions forbid: a check that is red on day one trains people to
+        # merge past red. Neither hatch can mask a real failure - pytest exit
+        # codes 1 (tests failed), 2 (interrupted), 3 (internal error) and
+        # 4 (usage error) all still fail the job. The moment tests/ lands this
+        # step gates on real results with no edit required.
+        #
+        # TODO: delete both guards once PR #1 has merged, so that a repo that
+        # loses its tests goes red instead of quietly passing.
+        run: |
+          if ! python -m pytest --version >/dev/null 2>&1; then
+            echo "::warning title=Tests skipped::pytest is not installed (requirements-dev.txt is not on this ref). Expected until PR #1 merges - remove this guard afterwards."
+            exit 0
+          fi
+
+          set +e
+          python -m pytest
+          status=$?
+          set -e
+
+          if [ "$status" -eq 5 ]; then
+            echo "::warning title=No tests collected::pytest exited 5 (zero tests collected). Expected until PR #1 adds tests/ - remove this guard afterwards."
+            exit 0
+          fi
+
+          exit "$status"
+
+      - name: Compile check
+        # GATING: byte-compiles every module under app/ and fails on a syntax
+        # error. This is the only static signal the repo has - there is no
+        # linter, formatter or type checker configured, and adding one is
+        # explicitly out of scope for this change.
+        #
+        # `-q` suppresses the per-file listing but still prints errors. Note
+        # this is a syntax check, not an import check: it will not catch a bad
+        # import or a missing dependency.
+        run: python -m compileall -q app
+
+  # ---------------------------------------------------------------------------
+  # ADVISORY. This job reports and never blocks. See the comment below.
+  # ---------------------------------------------------------------------------
+  audit:
+    name: Dependency audit (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          # No pip cache here on purpose: this job installs only pip-audit, not
+          # requirements.txt, so there is nothing worth caching.
+
+      - name: Install pip-audit
+        # Pinned so the tool version cannot shift under the build. Note this
+        # does NOT freeze the results: pip-audit queries the PyPI/OSV advisory
+        # feeds at run time, so new advisories will show up on their own.
+        run: python -m pip install pip-audit==2.10.1
+
+      - name: Audit pinned dependencies (ADVISORY - does not gate)
+        # ADVISORY BY DESIGN. This step always exits 0. That is a deliberate
+        # stage, not an oversight.
+        #
+        # requirements.txt has known advisories that are deliberately out of
+        # scope for this change. Verified locally with pip-audit 2.10.1:
+        #
+        #   on main today          15 advisories across 6 packages
+        #                          (starlette 9, idna 2, click 1, h11 1,
+        #                           mako 1, python-dotenv 1)
+        #   after PR #1 merges     10 advisories across 2 packages
+        #                          (starlette 9, mako 1) - PR #1 bumps
+        #                           click, h11, idna and python-dotenv
+        #
+        # Either way a gating audit is red on day one, which the CI conventions
+        # forbid. So this reports loudly - full output in the log and in the run
+        # summary - and lets the merge through.
+        #
+        # TO MAKE THIS GATE, in this order:
+        #   1. Upgrade starlette. The fix versions run 0.40.0 through 1.3.1;
+        #      anything at or past 1.x is a FastAPI compatibility question, not
+        #      a one-line pin bump, and needs its own change.
+        #   2. Upgrade mako to >= 1.3.12.
+        #   3. Delete the `|| true` and the trailing `exit 0` below, so a newly
+        #      published advisory fails the build.
+        # Until then, do NOT add this job to the required status checks - it is
+        # non-gating by design and will report findings on every run.
+        run: |
+          set -o pipefail
+          echo "Advisory only: findings below do NOT fail this build."
+          python -m pip_audit -r requirements.txt 2>&1 | tee audit-output.txt || true
+
+          {
+            echo "### Dependency audit (advisory)"
+            echo
+            echo "\`pip-audit -r requirements.txt\` - **reported only, does not gate.**"
+            echo
+            echo '```'
+            cat audit-output.txt
+            echo '```'
+            echo
+            echo "See the comment in \`.github/workflows/ci.yml\` for what has to change before this can gate."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Advisory step complete - exiting 0 regardless of findings."
+          exit 0
