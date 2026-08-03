@@ -22,11 +22,13 @@ def read_zipcode(zip_code: str, session: Session = Depends(get_session)):
     try:
 
         zip_code_area_id = f"ocd-division/country:us/zipcode:{zip_code}"
+        # one_or_none(), not one(): one() raises NoResultFound for a missing ZIP, which
+        # made the guard below unreachable and turned a 404 into the generic error body.
         area = session.execute(
             select(Area)
             .where(Area.id == zip_code_area_id)
-        ).scalars().one()
-    
+        ).scalars().one_or_none()
+
         if not area:
             raise HTTPException(status_code=404, detail="ZIP code not found")
         # log.info(f"Zip code: {area}")
@@ -39,7 +41,10 @@ def read_zipcode(zip_code: str, session: Session = Depends(get_session)):
             "geometry": mapping(geom),  # Convert geometry to GeoJSON
             "error": None
         }
-    except:
+    except HTTPException:
+        # A missing ZIP is a 404, not a 200 with an error body.
+        raise
+    except Exception:
         log.error(f"Exception occurred: {traceback.format_exc()}")
         return {
             "zip_code": None,
@@ -53,10 +58,11 @@ def read_zipcode(area_id: str, session: Session = Depends(get_session)):
     log.info(f"Area id: {area_id}")
     try:
 
+        # one_or_none() for the same reason as read_zipcode above.
         area = session.execute(
             select(Area.id, Area.geometry)
             .where(Area.id == area_id)
-        ).one()
+        ).one_or_none()
 
         if not area:
             raise HTTPException(status_code=404, detail="Area not found")
@@ -69,7 +75,10 @@ def read_zipcode(area_id: str, session: Session = Depends(get_session)):
             "geometry": mapping(geom),  # Convert geometry to GeoJSON
             "error": None
         }
-    except:
+    except HTTPException:
+        # A missing area is a 404, not a 200 with an error body.
+        raise
+    except Exception:
         log.error(f"Exception occurred: {traceback.format_exc()}")
         return {
             "area_id": None,
@@ -90,8 +99,11 @@ def get_precincts_by_centroid(
     """
     try:
 
-        # Check for too big/small radius
-        if 100 > radius_miles < 1:
+        # Check for too big/small radius.
+        # This was `if 100 > radius_miles < 1`, a chained comparison meaning
+        # (100 > radius_miles) and (radius_miles < 1) -- the upper bound never fired,
+        # so ?radius_miles=100000 loaded every precinct polygon in the country.
+        if not 1 <= radius_miles <= 100:
             raise HTTPException(status_code=400, detail="Radius miles must be between 1 and 100")
 
         # 1) Get the ZIP area

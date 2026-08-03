@@ -26,8 +26,10 @@ class PaginatedBills(BaseModel):
 @router.get("/zipcodes/{zip_code}/bills", response_model=PaginatedBills)
 def get_bills_for_representatives(
     zip_code: str,
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1, description="The page number to retrieve"),
+    # Each bill carries several JSONB blobs, so an unbounded page_size lets a single
+    # request pull the table into memory. Same ceiling as /bills/versions below.
+    page_size: int = Query(20, ge=1, le=100, description="Number of bills per page"),
     has_votes: bool = False,
     # --- New filters ---
     date_type: Optional[str] = None,  # e.g. "latest_action_date" or "creation_date"
@@ -57,13 +59,6 @@ def get_bills_for_representatives(
 
     try:
         area_id = f"ocd-division/country:us/zipcode:{zip_code}"
-
-        # Validate pagination
-        if page < 1 or page_size < 1:
-            raise HTTPException(
-                status_code=400,
-                detail="page and page_size must be positive integers."
-            )
 
         # Find person_ids for this zip code
         person_ids = (
@@ -117,11 +112,19 @@ def get_bills_for_representatives(
             # Build a subquery for bills that any of these reps voted on
             votes_lateral = func.jsonb_array_elements(VoteEvent.votes).alias("vote_element")
 
-            # Build the conditions for matching representative IDs
+            # Build the conditions for matching representative IDs.
+            # The rep_id is attacker-controlled, so the JSONB operand must be sent as a
+            # bound parameter -- never interpolated into the SQL text. The explicit CAST
+            # keeps the `@>` operand typed as jsonb now that it arrives as a parameter.
             or_conditions = []
-            for rep_id in representative_ids:
+            for index, rep_id in enumerate(representative_ids):
+                param_name = f"rep_condition_{index}"
                 condition = json.dumps({"voter_id": rep_id})
-                or_conditions.append(text(f"vote_element @> '{condition}'"))
+                or_conditions.append(
+                    text(f"vote_element @> CAST(:{param_name} AS jsonb)").bindparams(
+                        **{param_name: condition}
+                    )
+                )
 
             # Create the subquery that uses the LATERAL join to filter votes
             rep_vote_bill_ids = (
@@ -208,6 +211,9 @@ def get_bills_for_representatives(
             bills=bills_with_votes,
         )
 
+    except HTTPException:
+        # The 400s and 404s raised above are deliberate; don't relabel them as 500.
+        raise
     except Exception as e:
         log.exception(e)
         log.error(traceback.format_exc())
@@ -221,13 +227,17 @@ def get_bill(bill_id: str,  session: Session = Depends(get_session)):
     try:
         bill = session.exec(select(BillTable).where(BillTable.id == bill_id)).one_or_none()
 
+        # Must precede the bill.id dereference below, or an unknown bill_id is an
+        # AttributeError that the handler downgrades to a 500.
+        if not bill:
+            raise HTTPException(status_code=404, detail="Bill not found")
+
         votes = session.exec(select(VoteEvent).where(VoteEvent.bill_id == bill.id)).all()
         bill_with_votes = BillWithVotes(**bill.dict(), votes=votes)
 
-        # if not bill:
-        #     raise HTTPException(status_code=404, detail="Bill not found")
-
         return bill_with_votes
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(e)
         log.error(traceback.format_exc())
@@ -248,7 +258,6 @@ def update_bill_summary(data: BillSummaryUpdateRequest, request:Request, session
 
 
         headers_dict = dict(request.headers)
-        log.info(headers_dict)
 
         if "x-repcheck-api-key" not in headers_dict:
             raise HTTPException(status_code=401, detail="X-REPCHECK-API-KEY is not set.")
